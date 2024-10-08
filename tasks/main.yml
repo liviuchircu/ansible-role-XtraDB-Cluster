@@ -5,7 +5,7 @@
   with_first_found:
     - "{{ ansible_distribution }}.yml"
     - "{{ ansible_os_family }}.yml"
-  tags: install
+  tags: [install, mysql-systemd-rewrite]
 
 - name: Checking if XtraDB cluster is already configured
   stat:
@@ -92,9 +92,11 @@
 
 - name: include bootstrap tasks
   import_tasks: bootstrap.yml
-  tags: configure
+  tags:
+    - configure
+    - mysql-systemd-rewrite
   when:
-    - not _xtradb_configured.stat.exists
+    - not _xtradb_configured.stat.exists|d(0)
 
 - name: include postinstall tasks
   import_tasks: postinstall.yml

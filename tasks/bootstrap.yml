@@ -3,6 +3,7 @@
   service:
     name: "{{ xtradb_service }}"
     state: stopped
+  tags: [configure, mysql-xtradb-cnf]
 
 - name: Generate configuration
   template:
@@ -11,6 +12,7 @@
     owner: root
     group: root
     mode: 0644
+  tags: [configure, mysql-xtradb-cnf]
 
 - name: Overwrite MariaDB includedir
   replace:
@@ -18,6 +20,35 @@
     regexp: '^!includedir /etc/mysql/mariadb.conf.d/$'
     replace: '!includedir /etc/mysql/percona-xtradb-cluster.conf.d/'
   when: xtradb_version|truncate(1, True, '') < "8"
+  tags: configure
+
+- name: Clone mysql.service file into /etc/systemd/
+  ansible.builtin.copy:
+    src: /lib/systemd/system/mysql.service
+    dest: /etc/systemd/system/mysql.service
+    remote_src: true
+    mode: '0644'
+  tags: mysql-systemd-rewrite
+
+- name: Remove 'remote-fs.target' dependencies from mysql.service
+  ansible.builtin.replace:
+    path: /etc/systemd/system/mysql.service
+    regexp: ' remote-fs.target'
+    replace: ''
+  tags: mysql-systemd-rewrite
+
+- name: Force systemd to reread configs
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  tags: mysql-systemd-rewrite
+
+- name: Ensure 'mysqld' alias points to /etc service file
+  ansible.builtin.file:
+    path: /etc/systemd/system/mysqld.service
+    src: /etc/systemd/system/mysql.service
+    state: link
+    force: true
+  tags: mysql-systemd-rewrite
 
 - name: Configure swappiness
   sysctl:
@@ -27,6 +58,7 @@
   when: >
     docker is not defined and
     xtradb_swappiness >= 0
+  tags: configure
 
 - name: Start the master node (RedHat)
   service:
@@ -35,6 +67,7 @@
   when:
     - xtradb_master_node in ansible_all_ipv4_addresses
     - ansible_os_family == "RedHat"
+  tags: configure
 
 - name: Start the master node (Debian)
   command: /etc/init.d/mysql bootstrap-pxc
@@ -42,6 +75,7 @@
     - xtradb_version|truncate(1, True, '') < "8"
     - xtradb_master_node in ansible_all_ipv4_addresses
     - ansible_os_family == "Debian"
+  tags: [configure, mysql-xtradb-cnf]
 
 - name: Start the master node (Debian, PXC 8.0+)
   service:
@@ -51,6 +85,7 @@
     - xtradb_version|truncate(1, True, '') >= "8"
     - xtradb_master_node in ansible_all_ipv4_addresses
     - ansible_os_family == "Debian"
+  tags: [configure, mysql-xtradb-cnf]
 
 - name: Create SST user (PXC 5.7 or older)
   mysql_user:
@@ -62,6 +97,7 @@
   when: >
     xtradb_version|truncate(1, True, '') < "8" and
     xtradb_master_node in ansible_all_ipv4_addresses
+  tags: configure
 
 - name: Fetch the TLS certs from the master node (PXC 8.0)
   fetch:
@@ -73,6 +109,7 @@
   when: >
     xtradb_version|truncate(1, True, '') >= "8" and
     xtradb_master_node in ansible_all_ipv4_addresses
+  tags: [configure, mysql-xtradb-cnf]
 
 - name: Install the master TLS certs on other nodes (PXC 8.0)
   copy:
@@ -82,12 +119,14 @@
   when: >
     xtradb_version|truncate(1, True, '') >= "8" and
     xtradb_master_node not in ansible_all_ipv4_addresses
+  tags: [configure, mysql-xtradb-cnf]
 
 - name: Start the slave nodes
   service:
     name: "{{ xtradb_service }}"
     state: started
   when: xtradb_master_node not in ansible_all_ipv4_addresses
+  tags: [configure, mysql-xtradb-cnf]
 
 - name: Marking as configured
   file:
@@ -96,6 +135,6 @@
     owner: root
     group: root
     mode: '0400'
-
+  tags: configure
 
 ...
